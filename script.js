@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const callAudio = document.getElementById('call-audio');
     const ringingAudio = document.getElementById('ringing-audio');
     const timerElement = document.getElementById('call-timer');
+    const toast = document.getElementById('toast');
 
     // WhatsApp Configuration
     const whatsappNumber = '5551992856577';
@@ -16,24 +17,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let checkInterval;
     let seconds = 0;
+    let autoAnswerTimeout;
+    let isAnswered = false;
+    let toastTimeout;
 
-    // Attempt to play ringing sound
+    // --- Audio Functions ---
     function playRinging() {
         ringingAudio.currentTime = 0;
         setTimeout(() => {
-            ringingAudio.play().then(() => {
-                document.body.classList.add('is-ringing');
-            }).catch(e => {
+            ringingAudio.play().catch(e => {
                 console.log("Autoplay blocked, waiting for interaction");
                 document.body.addEventListener('click', () => {
-                    ringingAudio.play();
-                    document.body.classList.add('is-ringing');
+                    if (!isAnswered) ringingAudio.play();
                 }, { once: true });
             });
         }, 1000);
     }
 
     playRinging();
+
+    // --- Call Handling ---
+    function answerCall() {
+        if (isAnswered) return;
+        isAnswered = true;
+
+        clearTimeout(autoAnswerTimeout);
+        ringingAudio.pause();
+        ringingAudio.currentTime = 0;
+
+        incomingScreen.classList.remove('active');
+
+        setTimeout(() => {
+            activeScreen.classList.add('active');
+            callAudio.play().catch(e => {
+                console.error("Audio play failed", e);
+                document.body.addEventListener('click', () => {
+                    callAudio.play();
+                }, { once: true });
+            });
+            startTimer();
+        }, 500);
+    }
+
+    // Auto-answer after 3 seconds
+    autoAnswerTimeout = setTimeout(() => {
+        if (!isAnswered) {
+            answerCall();
+        }
+    }, 4000); // 1s delay + 3s wait
 
     function startTimer() {
         checkInterval = setInterval(() => {
@@ -42,8 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const secs = (seconds % 60).toString().padStart(2, '0');
             timerElement.textContent = `${mins}:${secs}`;
 
-            // Show humanized button at 00:05
-            if (seconds === 5) {
+            if (seconds === 32) {
                 humanBtn.style.display = 'block';
             }
         }, 1000);
@@ -53,20 +83,43 @@ document.addEventListener('DOMContentLoaded', () => {
         redirectMsg.style.display = 'block';
         setTimeout(() => {
             window.location.href = whatsappUrl;
-        }, 1500); // Small delay to show "Redirecionando"
+        }, 1500);
     }
 
-    btnAnswer.addEventListener('click', () => {
-        ringingAudio.pause();
-        ringingAudio.currentTime = 0;
-        document.body.classList.remove('is-ringing');
-        incomingScreen.classList.remove('active');
+    function showToast() {
+        clearTimeout(toastTimeout);
+        toast.classList.add('show');
+        toastTimeout = setTimeout(() => {
+            toast.classList.remove('show');
+        }, 2000);
+    }
 
-        setTimeout(() => {
-            activeScreen.classList.add('active');
-            callAudio.play().catch(e => console.error("Audio play failed", e));
-            startTimer();
-        }, 500);
+    // --- Input Listeners ---
+
+    btnAnswer.addEventListener('click', answerCall);
+
+    // Swipe to answer
+    let startY = 0;
+    const swipeThreshold = 50;
+    const handleStart = (e) => {
+        startY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+    };
+    const handleMove = (e) => {
+        if (isAnswered) return;
+        const currentY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        const diff = startY - currentY;
+        if (diff > swipeThreshold) {
+            answerCall();
+        }
+    };
+    btnAnswer.addEventListener('touchstart', handleStart);
+    btnAnswer.addEventListener('touchmove', handleMove);
+    btnAnswer.addEventListener('mousedown', handleStart);
+    window.addEventListener('mousemove', (e) => {
+        if (startY > 0) handleMove(e);
+    });
+    window.addEventListener('mouseup', () => {
+        startY = 0;
     });
 
     humanBtn.addEventListener('click', () => {
@@ -74,25 +127,15 @@ document.addEventListener('DOMContentLoaded', () => {
         redirectToWhatsapp();
     });
 
-    const decorativeBtns = document.querySelectorAll('.control-item');
-
-    function showInfoMessage() {
-        const infoMsg = document.getElementById('info-message');
-        if (!infoMsg) return;
-        infoMsg.style.display = 'block';
-        setTimeout(() => {
-            infoMsg.style.display = 'none';
-        }, 3000);
-    }
-
-    decorativeBtns.forEach(btn => {
-        btn.addEventListener('click', showInfoMessage);
+    btnEnd.addEventListener('click', () => {
+        // callAudio.pause(); // Mantém o áudio tocando conforme solicitado
+        clearInterval(checkInterval);
+        showToast();
     });
 
-    btnEnd.addEventListener('click', () => {
-        callAudio.pause();
-        showInfoMessage();
-        redirectToWhatsapp();
+    // Handle illustrative buttons (control grid)
+    document.querySelectorAll('.control-item').forEach(btn => {
+        btn.addEventListener('click', showToast);
     });
 
     callAudio.addEventListener('ended', () => {
